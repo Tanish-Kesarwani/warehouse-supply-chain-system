@@ -5,6 +5,9 @@ from models.inventory import Inventory
 from models.warehouse import Warehouse
 from models.product import Product
 from schemas.inventory_schema import InventoryCreate, InventoryResponse
+from schemas.inventory_schema import StockTransferRequest
+from sqlalchemy.exc import SQLAlchemyError
+
 
 router = APIRouter(prefix="/inventory", tags=["Inventory"])
 
@@ -72,3 +75,52 @@ def update_inventory(inventory_id: int, updated_data: InventoryCreate, db: Sessi
     db.refresh(inventory)
 
     return inventory
+
+@router.post("/transfer")
+def transfer_stock(data: StockTransferRequest, db: Session = Depends(get_db)):
+    try:
+        # ❌ same warehouse check
+        if data.from_warehouse_id == data.to_warehouse_id:
+            raise HTTPException(status_code=400, detail="Source and destination cannot be same")
+
+        # 🔍 source stock
+        source = db.query(Inventory).filter(
+            Inventory.product_id == data.product_id,
+            Inventory.warehouse_id == data.from_warehouse_id
+        ).first()
+
+        if not source or source.quantity < data.quantity:
+            raise HTTPException(status_code=400, detail="Insufficient stock in source warehouse")
+
+        # 🔍 destination stock
+        destination = db.query(Inventory).filter(
+            Inventory.product_id == data.product_id,
+            Inventory.warehouse_id == data.to_warehouse_id
+        ).first()
+
+        # 🔄 update source
+        source.quantity -= data.quantity
+
+        # 🔄 update/create destination
+        if destination:
+            destination.quantity += data.quantity
+        else:
+            new_entry = Inventory(
+                product_id=data.product_id,
+                warehouse_id=data.to_warehouse_id,
+                quantity=data.quantity
+            )
+            db.add(new_entry)
+
+        db.commit()
+
+        return {
+            "message": "Stock transferred successfully",
+            "from_warehouse": data.from_warehouse_id,
+            "to_warehouse": data.to_warehouse_id,
+            "quantity": data.quantity
+        }
+
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Database error during transfer")
