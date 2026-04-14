@@ -16,27 +16,42 @@ jobs:
     name: Build and Deploy Job
 
     steps:
-      - uses: actions/checkout@v3
-        with:
-          submodules: true
-          lfs: false
+      - name: Checkout
+        uses: actions/checkout@v3
 
-      - name: Build And Deploy
-        id: builddeploy
+      # 🔥 FORCE NODE VERSION (fixes Azure Node 22 issue)
+      - name: Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      # 🔥 INSTALL DEPENDENCIES
+      - name: Install dependencies
+        run: |
+          cd frontend
+          npm install
+
+      # 🔥 FIX PERMISSION + BUILD
+      - name: Build frontend
+        run: |
+          cd frontend
+          chmod +x node_modules/.bin/vite
+          npx vite build
+
+      # 🔥 DEPLOY (skip Azure build completely)
+      - name: Deploy
         uses: Azure/static-web-apps-deploy@v1
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_YELLOW_COAST_0E62B3600 }}
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           action: "upload"
 
-          # 🔥 IMPORTANT CONFIG
-          app_location: "./frontend"
+          app_location: "frontend"
           api_location: ""
           output_location: "dist"
 
-          # 🔥 FIX FOR VITE (prevents random failures)
-          app_build_command: "npx vite build"
-
+          skip_app_build: true   # 🔥 VERY IMPORTANT
+          
   close_pull_request_job:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
     runs-on: ubuntu-latest
@@ -44,7 +59,6 @@ jobs:
 
     steps:
       - name: Close Pull Request
-        id: closepullrequest
         uses: Azure/static-web-apps-deploy@v1
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_YELLOW_COAST_0E62B3600 }}
